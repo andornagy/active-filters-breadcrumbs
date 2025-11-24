@@ -369,18 +369,23 @@ function saf_shortcode_render($atts)
      * @param array $items Array of item arrays with keys: label, remove, key, is_taxonomy.
      */
     $items = apply_filters('saf_items', $items);
-    if (empty($items)) {
-        return ''; // nothing active
-    }
 
     // Enqueue assets only when shortcode is present on the page
     wp_enqueue_style('saf-style');
     wp_enqueue_script('saf-script');
     wp_enqueue_script('saf-ajax-update');
 
+    // Always render the container (even if empty) so JavaScript can find it for updates
     $out = '';
     $out .= '<nav class="afb-breadcrumbs" data-saf-breadcrumb="1" aria-label="Active filters">';
-    $out .= '<span class="afb-prefix">Filters:</span> ';
+    
+    if (empty($items)) {
+        // No active filters, but keep the nav element so it can be updated when filters are applied
+        $out .= '<span class="afb-prefix">Filters:</span> <span class="afb-no-filters">None</span>';
+    } else {
+        $out .= '<span class="afb-prefix">Filters:</span> ';
+
+    }
 
     $parts = array();
     foreach ($items as $item) {
@@ -462,13 +467,15 @@ function saf_shortcode_render($atts)
     }
 
     // Render as a list of pill buttons (no separators required)
-    $out .= implode(' ', $parts);
+    if (!empty($items)) {
+        $out .= implode(' ', $parts);
 
-    // Clear all link
-    $query_keys = array_keys($_GET);
-    if (! empty($query_keys)) {
-        $clear_url = remove_query_arg($query_keys, home_url(add_query_arg(null, null)));
-        $out .= ' <span class="afb-sep">|</span> <a class="afb-clear" href="' . esc_url($clear_url) . '">Clear all</a>';
+        // Clear all link
+        $query_keys = array_keys($_GET);
+        if (! empty($query_keys)) {
+            $clear_url = remove_query_arg($query_keys, home_url(add_query_arg(null, null)));
+            $out .= ' <span class="afb-sep">|</span> <a class="afb-clear" href="' . esc_url($clear_url) . '">Clear all</a>';
+        }
     }
 
     $out .= '</nav>';
