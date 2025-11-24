@@ -223,7 +223,16 @@ function saf_get_active_filters_items()
     }
 
     // Any additional GET params (common pattern for filters like price_min, color, etc.)
-    $skip = array('paged', 'pagename', 's', 'cat', 'category_name', 'tag', 'author', 'author_name', 'post_type', 'year', 'monthnum', 'day');
+    $skip = array('paged', 'pagename', 's', 'cat', 'category_name', 'tag', 'author', 'author_name', 'post_type', 'year', 'monthnum', 'day', 'preview_id', 'preview_nounce', 'preview');
+
+    /**
+     * Filter the list of query parameter keys to skip/ignore when building active filter items.
+     * This is useful for excluding framework-specific or preview params (e.g. Elementor's preview_id).
+     *
+     * @param array $skip Array of query var keys to skip.
+     */
+    $skip = apply_filters('saf_skip_params', $skip);
+
     foreach ($_GET as $k => $v) {
         if (in_array($k, $skip, true)) {
             continue;
