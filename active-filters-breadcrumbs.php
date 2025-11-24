@@ -28,6 +28,13 @@ function saf_register_assets()
     $base = plugin_dir_url(__FILE__);
     wp_register_style('saf-style', $base . 'css/afb-style.css', array(), '0.1');
     wp_register_script('saf-script', $base . 'js/afb-script.js', array(), '0.1', true);
+    
+    // Register AJAX update script (enqueued only when shortcode is used)
+    wp_register_script('saf-ajax-update', $base . 'js/afb-ajax-update.js', array('jquery'), '0.1', true);
+    wp_localize_script('saf-ajax-update', 'safAjax', array(
+        'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('saf_refresh_nonce'),
+    ));
 }
 
 add_action('wp_enqueue_scripts', 'saf_register_assets');
@@ -369,9 +376,10 @@ function saf_shortcode_render($atts)
     // Enqueue assets only when shortcode is present on the page
     wp_enqueue_style('saf-style');
     wp_enqueue_script('saf-script');
+    wp_enqueue_script('saf-ajax-update');
 
     $out = '';
-    $out .= '<nav class="afb-breadcrumbs" aria-label="Active filters">';
+    $out .= '<nav class="afb-breadcrumbs" data-saf-breadcrumb="1" aria-label="Active filters">';
     $out .= '<span class="afb-prefix">Filters:</span> ';
 
     $parts = array();
@@ -471,3 +479,21 @@ function saf_shortcode_render($atts)
 }
 
 add_shortcode('active_filters_breadcrumbs', 'saf_shortcode_render');
+
+/**
+ * AJAX endpoint to re-render the active filters breadcrumb.
+ * Called when Elementor query loop updates via AJAX.
+ */
+function saf_ajax_refresh_breadcrumb() {
+    // Verify nonce for security
+    check_ajax_referer('saf_refresh_nonce', 'nonce');
+
+    // Re-render the shortcode with default attributes
+    $output = saf_shortcode_render(array());
+
+    wp_send_json_success(array(
+        'html' => $output,
+    ));
+}
+add_action('wp_ajax_saf_refresh_breadcrumb', 'saf_ajax_refresh_breadcrumb');
+add_action('wp_ajax_nopriv_saf_refresh_breadcrumb', 'saf_ajax_refresh_breadcrumb');
