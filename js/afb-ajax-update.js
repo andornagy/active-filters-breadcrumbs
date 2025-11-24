@@ -1,33 +1,11 @@
 /**
  * AJAX Update Handler for Active Filters Breadcrumb
  * 
- * Listens for Elementor query loop updates and refreshes the active filters breadcrumb
+ * Listens for Search and Filter (paid) AJAX updates and refreshes the active filters breadcrumb
  */
 
 (function ($) {
     'use strict';
-
-    // Elementor Pro Query Control update events
-    // Fires when query loop results are updated via AJAX
-    $(document).on('elementor_pro/query_control/render_items/success', function (event, settings, queryData) {
-        refreshBreadcrumb();
-    });
-
-    // Also listen for elementor frontend updates
-    $(document).on('elementor/frontend/init', function () {
-        // Hook into Elementor Pro query control updates if available
-        if (window.elementorProFrontend) {
-            $(document).on('elementor_pro/query_control/items/render', function () {
-                refreshBreadcrumb();
-            });
-        }
-    });
-
-    // Listen for custom filter button clicks (common Elementor filter pattern)
-    $(document).on('click', '.e-filter-button, [data-elementor-filter]', function () {
-        // Delay slightly to allow URL to update
-        setTimeout(refreshBreadcrumb, 500);
-    });
 
     /**
      * Refresh the breadcrumb via AJAX
@@ -57,5 +35,35 @@
             }
         });
     }
+
+    /**
+     * Search and Filter Pro (paid) events
+     * Listens for S&F AJAX filtering events
+     */
+
+    // Event fired when Search and Filter starts processing filters
+    $(document).on('sf:ajaxstart', function () {
+        // Optional: show loading state
+    });
+
+    // Event fired when Search and Filter finishes AJAX and updates results
+    $(document).on('sf:ajaxfinish', function () {
+        refreshBreadcrumb();
+    });
+
+    // Alternative event (some versions use this)
+    $(document).on('sf:filterupdate', function () {
+        refreshBreadcrumb();
+    });
+
+    // Fallback: watch for URL changes (S&F might use History API)
+    var lastUrl = window.location.href;
+    setInterval(function () {
+        if (window.location.href !== lastUrl) {
+            lastUrl = window.location.href;
+            // Give a small delay for the DOM to update
+            setTimeout(refreshBreadcrumb, 200);
+        }
+    }, 500);
 
 })(jQuery);
