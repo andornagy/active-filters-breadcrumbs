@@ -1,0 +1,68 @@
+.afb-breadcrumbs {
+    font-size: 0.95rem;
+    margin: 0.5rem 0;
+    display: block
+}
+
+.afb-breadcrumbs .afb-prefix {
+    font-weight: 600;
+    margin-right: 0.5rem;
+    display: inline-block;
+    margin-bottom: 6px
+}
+
+.afb-filter {
+    display: inline-flex;
+    align-items: center;
+    background: #f1f1f1;
+    border: 1px solid #ddd;
+    border-radius: 999px;
+    padding: 4px 8px;
+    margin: 0 6px 6px 0;
+    color: #333;
+    text-decoration: none;
+    font-size: 0.9rem
+}
+
+.afb-filter .afb-label {
+    margin-right: 8px
+}
+
+.afb-filter .afb-remove-btn {
+    display: inline-block;
+    background: transparent;
+    border: 0;
+    color: #777;
+    font-weight: 700;
+    font-size: 1.05rem;
+    line-height: 1;
+    cursor: pointer;
+    text-decoration: none;
+    padding: 0 4px
+}
+
+.afb-filter .afb-remove-btn:hover {
+    color: #d54e21
+}
+
+.afb-filter.afb-filter-static {
+    background: #fafafa;
+    border-color: #eee;
+    color: #666
+}
+
+.afb-filter.afb-removing {
+    opacity: 0;
+    transform: scale(0.98);
+    transition: all 180ms ease-in
+}
+
+.afb-breadcrumbs .afb-clear {
+    margin-left: 0.5rem;
+    color: #d54e21;
+    text-decoration: none
+}
+
+.afb-breadcrumbs .afb-clear:hover {
+    text-decoration: underline
+}
