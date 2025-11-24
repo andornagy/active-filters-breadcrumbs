@@ -378,13 +378,12 @@ function saf_shortcode_render($atts)
     // Always render the container (even if empty) so JavaScript can find it for updates
     $out = '';
     $out .= '<nav class="afb-breadcrumbs" data-saf-breadcrumb="1" aria-label="Active filters">';
-    
+
     if (empty($items)) {
         // No active filters, but keep the nav element so it can be updated when filters are applied
         $out .= '<span class="afb-prefix">Filters:</span> <span class="afb-no-filters">None</span>';
     } else {
         $out .= '<span class="afb-prefix">Filters:</span> ';
-
     }
 
     $parts = array();
