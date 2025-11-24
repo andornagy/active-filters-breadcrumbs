@@ -28,7 +28,7 @@ function saf_register_assets()
     $base = plugin_dir_url(__FILE__);
     wp_register_style('saf-style', $base . 'css/afb-style.css', array(), '0.1');
     wp_register_script('saf-script', $base . 'js/afb-script.js', array(), '0.1', true);
-    
+
     // Register AJAX update script (enqueued only when shortcode is used)
     wp_register_script('saf-ajax-update', $base . 'js/afb-ajax-update.js', array('jquery'), '0.1', true);
     wp_localize_script('saf-ajax-update', 'safAjax', array(
@@ -484,7 +484,8 @@ add_shortcode('active_filters_breadcrumbs', 'saf_shortcode_render');
  * AJAX endpoint to re-render the active filters breadcrumb.
  * Called when Elementor query loop updates via AJAX.
  */
-function saf_ajax_refresh_breadcrumb() {
+function saf_ajax_refresh_breadcrumb()
+{
     // Verify nonce for security
     check_ajax_referer('saf_refresh_nonce', 'nonce');
 
