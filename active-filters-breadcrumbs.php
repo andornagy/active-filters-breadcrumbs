@@ -20,6 +20,10 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
+add_filter('saf_skip_params', function ($skip) {
+    $skip[] = 'search-filter-api';
+    return $skip;
+});
 /**
  * Register plugin assets (styles and scripts). Registered on init so they can be enqueued by the shortcode.
  */
@@ -247,39 +251,46 @@ function saf_get_active_filters_items()
         if (! is_scalar($v) || $v === '') {
             continue;
         }
-        // Preserve original key for removal, and a normalized lookup key (without leading underscores)
         $orig_k = $k;
         $lookup_k = ltrim($k, '_');
 
-        // If this GET key (or its underscored variant) matches a registered taxonomy's query_var or taxonomy name,
-        // treat it as a taxonomy item so hide_taxonomy and taxonomy formatting apply.
-        if (! empty($tax_map) && (isset($tax_map[$k]) || isset($tax_map[$lookup_k]))) {
-            $tax = isset($tax_map[$lookup_k]) ? $tax_map[$lookup_k] : $tax_map[$k];
-            // attempt to resolve a term for nicer label when possible
-            $term = get_term_by('slug', $v, $tax->name);
-            if (! $term) {
-                $term = get_term_by('id', intval($v), $tax->name);
-            }
-            $display_name = $term && ! is_wp_error($term) ? $term->name : sanitize_text_field($v);
-            $tax_label = isset($tax->labels->singular_name) ? $tax->labels->singular_name : $tax->label;
+        // Split comma-separated values (e.g., taxonomies, tags, custom filters)
+        $values = explode(',', $v);
+        foreach ($values as $single_v) {
+            $single_v = trim($single_v);
+            if ($single_v === '') continue;
 
-            $items[] = array(
-                'label' => sprintf('%s: %s', $tax_label, $display_name),
-                'remove' => saf_build_remove_link($k, array('key' => $k, 'label' => $display_name, 'is_taxonomy' => true)),
-                'key' => $k,
-                'is_taxonomy' => true,
-            );
-        } else {
-            // Use the normalized key (no leading underscores) for label/key so rendering
-            // options like strip_underscored and hide_taxonomy behave consistently.
-            $norm_k = ltrim($k, '_');
-            $label_key = sanitize_text_field($norm_k);
-            $items[] = array(
-                'label' => sprintf('%s: %s', $label_key, sanitize_text_field($v)),
-                // removal should still target the original GET param (may include underscores)
-                'remove' => saf_build_remove_link($orig_k, array('key' => $norm_k, 'label' => sanitize_text_field($v))),
-                'key' => $norm_k,
-            );
+            // If this GET key (or its underscored variant) matches a registered taxonomy's query_var or taxonomy name,
+            // treat it as a taxonomy item so hide_taxonomy and taxonomy formatting apply.
+            if (! empty($tax_map) && (isset($tax_map[$k]) || isset($tax_map[$lookup_k]))) {
+                $tax = isset($tax_map[$lookup_k]) ? $tax_map[$lookup_k] : $tax_map[$k];
+                // attempt to resolve a term for nicer label when possible
+                $term = get_term_by('slug', $single_v, $tax->name);
+                if (! $term) {
+                    $term = get_term_by('id', intval($single_v), $tax->name);
+                }
+                $display_name = $term && ! is_wp_error($term) ? $term->name : sanitize_text_field($single_v);
+                $tax_label = isset($tax->labels->singular_name) ? $tax->labels->singular_name : $tax->label;
+
+                // Build a removal URL that removes only this value from the comma-separated list
+                $removal_url = saf_build_remove_link_value($orig_k, $single_v);
+
+                $items[] = array(
+                    'label' => sprintf('%s: %s', $tax_label, $display_name),
+                    'remove' => $removal_url,
+                    'key' => $k,
+                    'is_taxonomy' => true,
+                );
+            } else {
+                $norm_k = ltrim($k, '_');
+                $label_key = sanitize_text_field($norm_k);
+                $removal_url = saf_build_remove_link_value($orig_k, $single_v);
+                $items[] = array(
+                    'label' => sprintf('%s: %s', $label_key, sanitize_text_field($single_v)),
+                    'remove' => $removal_url,
+                    'key' => $norm_k,
+                );
+            }
         }
     }
 
@@ -327,6 +338,27 @@ function saf_get_active_filters_items()
     return $items;
 }
 
+// Helper: builds a removal URL for a single value in a comma-separated param
+if (!function_exists('saf_build_remove_link_value')) {
+    function saf_build_remove_link_value($param, $value)
+    {
+        $current_url = home_url(add_query_arg(null, null));
+        if (!isset($_GET[$param])) return saf_build_remove_link($param); // fallback
+        $current_val = $_GET[$param];
+        $parts = array_filter(array_map('trim', explode(',', $current_val)), function ($v) use ($value) {
+            return $v !== '' && $v !== $value;
+        });
+        if (empty($parts)) {
+            // Remove the param entirely
+            $url = remove_query_arg($param, $current_url);
+        } else {
+            // Set the param to the remaining values
+            $url = add_query_arg($param, implode(',', $parts), $current_url);
+        }
+        return esc_url($url);
+    }
+}
+
 function saf_shortcode_render($atts)
 {
     $atts = shortcode_atts(array(
@@ -340,6 +372,8 @@ function saf_shortcode_render($atts)
         'hide_taxonomy' => true,
         // hide_common_keys: hide common keys like 'category', 'tag', 'author'
         'hide_common_keys' => true,
+        // include_keys: comma-separated list of allowed filter keys (optional)
+        'include_keys' => '',
     ), $atts, 'active_filters_breadcrumbs');
 
     // Normalize boolean-ish shortcode attributes
@@ -348,6 +382,13 @@ function saf_shortcode_render($atts)
     $strip_underscored = filter_var($atts['strip_underscored'], FILTER_VALIDATE_BOOLEAN);
     $hide_taxonomy = filter_var($atts['hide_taxonomy'], FILTER_VALIDATE_BOOLEAN);
     $hide_common_keys = filter_var($atts['hide_common_keys'], FILTER_VALIDATE_BOOLEAN);
+    $include_keys = array();
+    if (!empty($atts['include_keys'])) {
+        $include_keys = array_map('trim', explode(',', $atts['include_keys']));
+        $include_keys = array_filter($include_keys, function ($v) {
+            return $v !== '';
+        });
+    }
 
     // Allow mapping raw GET keys to friendly labels via filter: saf_label_map
     // Example: add_filter('saf_label_map', fn($m) => array_merge($m, ['price_min' => 'Min price']));
@@ -361,6 +402,13 @@ function saf_shortcode_render($atts)
 
 
     $items = saf_get_active_filters_items();
+    // If include_keys is set (shortcode), filter $items to only those whose key is in the list
+    if (!empty($include_keys)) {
+        $items = array_filter($items, function ($item) use ($include_keys) {
+            return !empty($item['key']) && in_array($item['key'], $include_keys, true);
+        });
+        $items = array_values($items); // reindex
+    }
     /**
      * Filter the active items array so themes (child themes) can modify, merge or
      * remove items prior to rendering. Example use: combine `price_min`/`price_max`
@@ -389,25 +437,15 @@ function saf_shortcode_render($atts)
     $parts = array();
     foreach ($items as $item) {
         $full_label = isset($item['label']) ? $item['label'] : '';
-
-        // Compute display label: by default show full label
         $display_label = $full_label;
-
-        // If label contains a key/value format "key: value" split it
         $kv = preg_split('/\s*:\s*/', $full_label, 2);
         $has_kv = count($kv) === 2;
-
-        // Optionally strip leading underscores from the key portion (user-friendly)
         if ($has_kv && $strip_underscored) {
             $kv[0] = preg_replace('/^_+/', '', $kv[0]);
         }
-
-        // Keys that we prefer to hide (show only the value):
         $hide_key = false;
         $k = ! empty($item['key']) ? $item['key'] : '';
-
         if ($show_keys) {
-            // explicit override: show keys always
             $hide_key = false;
         } else {
             if ($hide_taxonomy && ! empty($item['is_taxonomy'])) {
@@ -423,46 +461,26 @@ function saf_shortcode_render($atts)
                 }
             }
         }
-
-        // If mapping exists and we don't hide the key, use mapping for key portion
         if ($has_kv && ! empty($item['key']) && isset($label_map[$item['key']]) && ! $hide_key) {
             $display_label = $label_map[$item['key']] . ': ' . $kv[1];
         } elseif ($has_kv && ! $hide_key) {
-            // No mapping, show key: value but prettify the key (Title Case, hyphens -> spaces)
             $pretty_key = ucwords(str_replace(array('-', '_'), ' ', $kv[0]));
             $display_label = $pretty_key . ': ' . $kv[1];
         } elseif ($has_kv && $hide_key) {
-            // Show only the value portion
             $display_label = $kv[1];
         } else {
             $display_label = $full_label;
-            // If we don't have a separable key/value pair, allow stripping a leading underscore
             if (! $has_kv && $strip_underscored) {
                 if ($k !== '' && strpos($k, '_') === 0) {
-                    // Replace the key occurrence in the label with a de-underscored version
                     $display_label = preg_replace('/^' . preg_quote($k, '/') . '/', ltrim($k, '_'), $display_label);
                 } else {
                     $display_label = preg_replace('/^_+/', '', $display_label);
                 }
             }
         }
-
-        // Remove a trailing parenthetical like " (taxonomy)" if present
         $display_label = preg_replace('/\s*\([^)]*\)\s*$/', '', $display_label);
-
-        $aria_label = esc_attr($full_label);
         $disp = esc_html($display_label);
-
-        if (! empty($item['remove'])) {
-            $parts[] = sprintf(
-                '<span class="afb-filter"><span class="afb-label">%1$s</span><a href="%2$s" class="afb-remove-btn" aria-label="Remove filter %3$s">&times;</a></span>',
-                $disp,
-                esc_url($item['remove']),
-                $aria_label
-            );
-        } else {
-            $parts[] = sprintf('<span class="afb-filter afb-filter-static"><span class="afb-label">%s</span></span>', $disp);
-        }
+        $parts[] = sprintf('<span class="afb-filter afb-filter-static"><span class="afb-label">%s</span></span>', $disp);
     }
 
     // Render as a list of pill buttons (no separators required)
@@ -485,22 +503,3 @@ function saf_shortcode_render($atts)
 }
 
 add_shortcode('active_filters_breadcrumbs', 'saf_shortcode_render');
-
-/**
- * AJAX endpoint to re-render the active filters breadcrumb.
- * Called when Elementor query loop updates via AJAX.
- */
-function saf_ajax_refresh_breadcrumb()
-{
-    // Verify nonce for security
-    check_ajax_referer('saf_refresh_nonce', 'nonce');
-
-    // Re-render the shortcode with default attributes
-    $output = saf_shortcode_render(array());
-
-    wp_send_json_success(array(
-        'html' => $output,
-    ));
-}
-add_action('wp_ajax_saf_refresh_breadcrumb', 'saf_ajax_refresh_breadcrumb');
-add_action('wp_ajax_nopriv_saf_refresh_breadcrumb', 'saf_ajax_refresh_breadcrumb');
