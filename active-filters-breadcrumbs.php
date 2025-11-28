@@ -78,257 +78,57 @@ function saf_build_remove_link($param, $context = array())
 
 function saf_get_active_filters_items()
 {
-    global $wp_query;
-
     $items = array();
 
-    // Preload public taxonomies map for later detection (query_var -> taxonomy obj, and name -> obj)
-    $taxes = get_taxonomies(array('public' => true), 'objects');
-    $tax_map = array();
-    if (! empty($taxes) && is_array($taxes)) {
-        foreach ($taxes as $tax) {
-            $qv = isset($tax->query_var) && $tax->query_var !== false ? $tax->query_var : $tax->name;
-            $tax_map[$qv] = $tax;
-            $tax_map[$tax->name] = $tax;
-        }
+    // 1. Search
+    if (isset($_GET['s']) && $_GET['s'] !== '') {
+        $s = sanitize_text_field($_GET['s']);
+        $items[] = array(
+            'label' => sprintf('Search: "%s"', $s),
+            'key' => 's',
+        );
     }
 
-    // Allow developers to register aliases for taxonomy query keys. This is useful when
-    // front-end filters use different GET parameter names (for example ACF-generated
-    // inputs that include leading underscores or custom param names).
-    // See README.md for examples and usage of `afb_taxonomy_aliases`.
-    $taxonomy_aliases = apply_filters('saf_taxonomy_aliases', array());
-    if (! empty($taxonomy_aliases) && is_array($taxonomy_aliases)) {
-        foreach ($taxonomy_aliases as $alias => $tax_name) {
-            if (! isset($tax_map[$alias]) && isset($tax_map[$tax_name])) {
-                $tax_map[$alias] = $tax_map[$tax_name];
-            }
-        }
-    }
-
-    // Unified key map: developers can map raw GET keys to either a friendly label,
-    // to a taxonomy name, or both. This centralizes label mapping and aliasing.
-    // See README.md for examples and usage of `afb_key_map`.
-    $key_map = apply_filters('saf_key_map', array());
-
-    // Search
-    if (is_search()) {
-        $s = get_search_query();
-        if ($s !== '') {
-            $items[] = array(
-                'label' => sprintf('Search: "%s"', $s),
-                'remove' => saf_build_remove_link('s', array('key' => 's', 'label' => $s)),
-                'key' => 's',
-            );
-        }
-    }
-    $cat_id = get_query_var('cat');
-    if ($cat_id) {
-        $cat = get_category(intval($cat_id));
-        if ($cat && ! is_wp_error($cat)) {
+    // 2. Category (supports both 'cat' and 'category_name')
+    if (isset($_GET['cat']) && $_GET['cat'] !== '') {
+        $cat_id = intval($_GET['cat']);
+        $cat = get_category($cat_id);
+        if ($cat && !is_wp_error($cat)) {
             $items[] = array(
                 'label' => sprintf('Category: %s', $cat->name),
-                'remove' => saf_build_remove_link('cat', array('key' => 'cat', 'label' => $cat->name, 'is_taxonomy' => true)),
                 'key' => 'cat',
                 'is_taxonomy' => true,
             );
         }
-    } else {
-        $cat_slug = get_query_var('category_name');
-        if ($cat_slug) {
-            $term = get_term_by('slug', $cat_slug, 'category');
-            if ($term) {
-                $items[] = array(
-                    'label' => sprintf('Category: %s', $term->name),
-                    'remove' => saf_build_remove_link('category_name', array('key' => 'category_name', 'label' => $term->name, 'is_taxonomy' => true)),
-                    'key' => 'category_name',
-                    'is_taxonomy' => true,
-                );
-            }
-        }
-    }
-
-    // Tag
-    $tag_slug = get_query_var('tag');
-    if ($tag_slug) {
-        $tag = get_term_by('slug', $tag_slug, 'post_tag');
-        if ($tag) {
+    } elseif (isset($_GET['category_name']) && $_GET['category_name'] !== '') {
+        $cat_slug = sanitize_text_field($_GET['category_name']);
+        $term = get_term_by('slug', $cat_slug, 'category');
+        if ($term) {
             $items[] = array(
-                'label' => sprintf('Tag: %s', $tag->name),
-                'remove' => saf_build_remove_link('tag', array('key' => 'tag', 'label' => $tag->name, 'is_taxonomy' => true)),
-                'key' => 'tag',
+                'label' => sprintf('Category: %s', $term->name),
+                'key' => 'category_name',
                 'is_taxonomy' => true,
             );
         }
     }
 
-    // Author
-    $author_id = get_query_var('author');
-    if ($author_id) {
-        $display = get_the_author_meta('display_name', $author_id);
-        if ($display) {
-            $items[] = array(
-                'label' => sprintf('Author: %s', $display),
-                'remove' => saf_build_remove_link('author', array('key' => 'author', 'label' => $display)),
-                'key' => 'author',
-            );
-        }
-    } else {
-        $author_name = get_query_var('author_name');
-        if ($author_name) {
-            $user = get_user_by('slug', $author_name);
-            if ($user) {
-                $items[] = array(
-                    'label' => sprintf('Author: %s', $user->display_name),
-                    'remove' => saf_build_remove_link('author_name', array('key' => 'author_name', 'label' => $user->display_name)),
-                    'key' => 'author_name',
-                );
-            }
-        }
-    }
-
-    // Taxonomy / term pages
-    if (is_tax() || is_category() || is_tag()) {
-        $term = get_queried_object();
-        if (isset($term->taxonomy) && isset($term->name)) {
-            $tax_obj = get_taxonomy($term->taxonomy);
-            $label = isset($tax_obj->labels->singular_name) ? $tax_obj->labels->singular_name : $term->taxonomy;
-            $items[] = array(
-                'label' => sprintf('%s: %s', $label, $term->name),
-                'remove' => saf_build_remove_link($term->taxonomy, array('key' => $term->taxonomy, 'label' => $term->name, 'is_taxonomy' => true)),
-                'key' => $term->taxonomy,
-                'is_taxonomy' => true,
-            );
-        }
-    }
-
-    // Post type archive
-    if (is_post_type_archive()) {
-        $pt = get_post_type();
-        $obj = get_post_type_object($pt);
-        if ($obj) {
-            $items[] = array(
-                'label' => sprintf('Type: %s', $obj->labels->singular_name),
-                'remove' => saf_build_remove_link('post_type', array('key' => 'post_type', 'label' => $obj->labels->singular_name)),
-                'key' => 'post_type',
-            );
-        }
-    }
-
-    // Date-based queries
-    $year = get_query_var('year');
-    $month = get_query_var('monthnum');
-    $day = get_query_var('day');
-    if ($year) {
-        $label = 'Year: ' . intval($year);
-        if ($month) {
-            $label .= ' / ' . sprintf('%02d', intval($month));
-        }
-        if ($day) {
-            $label .= ' / ' . sprintf('%02d', intval($day));
-        }
-        $items[] = array(
-            'label' => $label,
-            'remove' => saf_build_remove_link(array('year', 'monthnum', 'day')),
-        );
-    }
-
-    // Any additional GET params (common pattern for filters like price_min, color, etc.)
-    $skip = array('paged', 'pagename', 's', 'cat', 'category_name', 'tag', 'author', 'author_name', 'post_type', 'year', 'monthnum', 'day', 'preview_id', 'preview_nounce', 'preview');
-
-    /**
-     * Filter the list of query parameter keys to skip/ignore when building active filter items.
-     * This is useful for excluding framework-specific or preview params (e.g. Elementor's preview_id).
-     *
-     * @param array $skip Array of query var keys to skip.
-     */
-    $skip = apply_filters('saf_skip_params', $skip);
-
-    foreach ($_GET as $k => $v) {
-        if (in_array($k, $skip, true)) {
-            continue;
-        }
-        if (! is_scalar($v) || $v === '') {
-            continue;
-        }
-        $orig_k = $k;
-        $lookup_k = ltrim($k, '_');
-
-        // Split comma-separated values (e.g., taxonomies, tags, custom filters)
-        $values = explode(',', $v);
-        foreach ($values as $single_v) {
-            $single_v = trim($single_v);
-            if ($single_v === '') continue;
-
-            // If this GET key (or its underscored variant) matches a registered taxonomy's query_var or taxonomy name,
-            // treat it as a taxonomy item so hide_taxonomy and taxonomy formatting apply.
-            if (! empty($tax_map) && (isset($tax_map[$k]) || isset($tax_map[$lookup_k]))) {
-                $tax = isset($tax_map[$lookup_k]) ? $tax_map[$lookup_k] : $tax_map[$k];
-                // attempt to resolve a term for nicer label when possible
-                $term = get_term_by('slug', $single_v, $tax->name);
-                if (! $term) {
-                    $term = get_term_by('id', intval($single_v), $tax->name);
+    // 3. Custom taxonomies: oc-catalog-domain, catalog-technology, catalog-use-case-scenario
+    $custom_taxonomies = array('oc-catalog-domain', 'catalog-technology', 'catalog-use-case-scenario');
+    foreach ($custom_taxonomies as $tax_key) {
+        if (isset($_GET[$tax_key]) && $_GET[$tax_key] !== '') {
+            $values = explode(',', $_GET[$tax_key]);
+            foreach ($values as $single_v) {
+                $single_v = trim($single_v);
+                if ($single_v === '') continue;
+                $term = get_term_by('slug', $single_v, $tax_key);
+                if (!$term) {
+                    $term = get_term_by('id', intval($single_v), $tax_key);
                 }
-                $display_name = $term && ! is_wp_error($term) ? $term->name : sanitize_text_field($single_v);
-                $tax_label = isset($tax->labels->singular_name) ? $tax->labels->singular_name : $tax->label;
-
-                // Build a removal URL that removes only this value from the comma-separated list
-                $removal_url = saf_build_remove_link_value($orig_k, $single_v);
-
+                $display_name = $term && !is_wp_error($term) ? $term->name : sanitize_text_field($single_v);
+                $tax_label = ucwords(str_replace('-', ' ', $tax_key));
                 $items[] = array(
                     'label' => sprintf('%s: %s', $tax_label, $display_name),
-                    'remove' => $removal_url,
-                    'key' => $k,
-                    'is_taxonomy' => true,
-                );
-            } else {
-                $norm_k = ltrim($k, '_');
-                $label_key = sanitize_text_field($norm_k);
-                $removal_url = saf_build_remove_link_value($orig_k, $single_v);
-                $items[] = array(
-                    'label' => sprintf('%s: %s', $label_key, sanitize_text_field($single_v)),
-                    'remove' => $removal_url,
-                    'key' => $norm_k,
-                );
-            }
-        }
-    }
-
-    // Detect registered public taxonomies (including those added via ACF) and add items
-    if (! empty($taxes) && is_array($taxes)) {
-        // Collect existing keys to avoid duplicates
-        $existing_keys = array();
-        foreach ($items as $it) {
-            if (! empty($it['key'])) {
-                $existing_keys[] = $it['key'];
-            }
-        }
-
-        foreach ($taxes as $tax) {
-            $qv = isset($tax->query_var) && $tax->query_var !== false ? $tax->query_var : $tax->name;
-            if (in_array($qv, $existing_keys, true)) {
-                continue;
-            }
-
-            // check for a value in query vars or GET
-            $val = get_query_var($qv);
-            if (! $val && isset($_GET[$qv])) {
-                $val = sanitize_text_field($_GET[$qv]);
-            }
-            if ($val) {
-                // attempt to resolve a term for nicer label when possible
-                $term = get_term_by('slug', $val, $tax->name);
-                if (! $term) {
-                    $term = get_term_by('id', intval($val), $tax->name);
-                }
-
-                $display_name = $term && ! is_wp_error($term) ? $term->name : $val;
-                $tax_label = isset($tax->labels->singular_name) ? $tax->labels->singular_name : $tax->label;
-
-                $items[] = array(
-                    'label' => sprintf('%s: %s', $tax_label, $display_name),
-                    'remove' => saf_build_remove_link($qv, array('key' => $qv, 'label' => $display_name, 'is_taxonomy' => true)),
-                    'key' => $qv,
+                    'key' => $tax_key,
                     'is_taxonomy' => true,
                 );
             }
