@@ -112,25 +112,33 @@ function saf_get_active_filters_items()
         }
     }
 
-    // 3. Custom taxonomies: oc-catalog-domain, catalog-technology, catalog-use-case-scenario
-    $custom_taxonomies = array('oc-catalog-domain', 'catalog-technology', 'catalog-use-case-scenario');
-    foreach ($custom_taxonomies as $tax_key) {
-        if (isset($_GET[$tax_key]) && $_GET[$tax_key] !== '') {
-            $values = explode(',', $_GET[$tax_key]);
-            foreach ($values as $single_v) {
-                $single_v = trim($single_v);
-                if ($single_v === '') continue;
-                $term = get_term_by('slug', $single_v, $tax_key);
-                if (!$term) {
-                    $term = get_term_by('id', intval($single_v), $tax_key);
+    // 3. Dynamically detect all taxonomy query vars (including underscored keys)
+    $all_taxonomies = get_taxonomies(array('public' => true), 'objects');
+    foreach ($all_taxonomies as $tax) {
+        $query_vars = array($tax->name);
+        if (!empty($tax->query_var) && $tax->query_var !== $tax->name) {
+            $query_vars[] = $tax->query_var;
+        }
+        // Also support underscored versions (e.g. _category)
+        $query_vars[] = '_' . $tax->name;
+        foreach ($query_vars as $tax_key) {
+            if (isset($_GET[$tax_key]) && $_GET[$tax_key] !== '') {
+                $values = explode(',', $_GET[$tax_key]);
+                foreach ($values as $single_v) {
+                    $single_v = trim($single_v);
+                    if ($single_v === '') continue;
+                    $term = get_term_by('slug', $single_v, $tax->name);
+                    if (!$term) {
+                        $term = get_term_by('id', intval($single_v), $tax->name);
+                    }
+                    $display_name = $term && !is_wp_error($term) ? $term->name : sanitize_text_field($single_v);
+                    $tax_label = ucwords(str_replace('-', ' ', $tax->label));
+                    $items[] = array(
+                        'label' => sprintf('%s: %s', $tax_label, $display_name),
+                        'key' => $tax_key,
+                        'is_taxonomy' => true,
+                    );
                 }
-                $display_name = $term && !is_wp_error($term) ? $term->name : sanitize_text_field($single_v);
-                $tax_label = ucwords(str_replace('-', ' ', $tax_key));
-                $items[] = array(
-                    'label' => sprintf('%s: %s', $tax_label, $display_name),
-                    'key' => $tax_key,
-                    'is_taxonomy' => true,
-                );
             }
         }
     }
@@ -161,6 +169,45 @@ if (!function_exists('saf_build_remove_link_value')) {
 
 function saf_shortcode_render($atts)
 {
+    // Try to get the S&F Query config object
+    $sf_form_id = apply_filters('saf_sf_form_id', 1);
+    $query = null;
+    if (class_exists('Search_Filter\Queries\Query')) {
+        $query = \Search_Filter\Queries\Query::find(array('id' => $sf_form_id));
+    }
+
+    // Get results count: try S&F render config, then run WP_Query as fallback, then $wp_query
+    $results_count = null;
+    if ($query && method_exists($query, 'get_render_config_value')) {
+        $count = $query->get_render_config_value('foundPosts');
+        if (is_numeric($count) && intval($count) > 1) {
+            $results_count = intval($count);
+        }
+    }
+
+    // If not found, try to run a WP_Query using the S&F Query's args
+    if ($results_count === null && $query && method_exists($query, 'apply_wp_query_args')) {
+        $args = $query->apply_wp_query_args(array());
+        if (method_exists($query, 'apply_fields_wp_query_args')) {
+            $args = $query->apply_fields_wp_query_args($args);
+        }
+        $args['fields'] = 'ids'; // optimize for count only
+        $args['no_found_rows'] = false;
+        $wpq = new \WP_Query($args);
+        if (isset($wpq->found_posts)) {
+            $results_count = intval($wpq->found_posts);
+        }
+        wp_reset_postdata();
+    }
+
+    // Fallback to global $wp_query
+    if ($results_count === null) {
+        global $wp_query;
+        if (isset($wp_query->found_posts)) {
+            $results_count = intval($wp_query->found_posts);
+        }
+    }
+
     $atts = shortcode_atts(array(
         // show_keys: true/false - when true, always show `key: value` on pills
         'show_keys' => false,
@@ -209,13 +256,7 @@ function saf_shortcode_render($atts)
         });
         $items = array_values($items); // reindex
     }
-    /**
-     * Filter the active items array so themes (child themes) can modify, merge or
-     * remove items prior to rendering. Example use: combine `price_min`/`price_max`
-     * into a single range label.
-     *
-     * @param array $items Array of item arrays with keys: label, remove, key, is_taxonomy.
-     */
+    // Allow themes/plugins to filter the items
     $items = apply_filters('saf_items', $items);
 
     // Enqueue assets only when shortcode is present on the page
@@ -226,6 +267,10 @@ function saf_shortcode_render($atts)
     // Always render the container (even if empty) so JavaScript can find it for updates
     $out = '';
     $out .= '<nav class="afb-breadcrumbs" data-saf-breadcrumb="1" aria-label="Active filters">';
+
+    if ($results_count !== null) {
+        $out .= '<span class="afb-results-count">Results: ' . $results_count . '</span> ';
+    }
 
     if (empty($items)) {
         // No active filters, but keep the nav element so it can be updated when filters are applied
